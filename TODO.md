@@ -1,0 +1,9 @@
+- [ ] Peer review plan submitted by April 14th
+- [ ] Get device launched graphs working
+    - [ ] Increment values
+    - [ ] Write to them directly 
+- [ ] Implement single layer NN
+- [ ] Multi layer
+- [ ] Compare performance with non-device graphs and no graphs
+- [ ] Pybind11??
+- [ ] Compare with numpy and pytorch
