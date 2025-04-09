@@ -1,7 +1,6 @@
 - [ ] Peer review plan submitted by April 14th
-- [ ] Get device launched graphs working
-    - [ ] Increment values
-    - [ ] Write to them directly 
+- [x] Get graphs working with simple kernel
+- [ ] Get device working launched graphs with simple kernel
 - [ ] Implement single layer NN
 - [ ] Multi layer
 - [ ] Compare performance with non-device graphs and no graphs
