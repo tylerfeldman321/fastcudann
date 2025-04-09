@@ -20,6 +20,7 @@ make
 make
 ```
 
-## References
-[1] https://developer.nvidia.com/blog/cuda-graphs/
-[2] https://docs.nvidia.com/cuda/index.html
+## Resources
+- https://developer.nvidia.com/blog/cuda-graphs/
+- https://docs.nvidia.com/cuda/index.html
+- https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__GRAPH.html#group__CUDART__GRAPH
