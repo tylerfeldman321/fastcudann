@@ -1,9 +1,9 @@
-all: cuda-dev-graphs.exe
+all: 5_nn_single_layer_graph_timing_less_sync.exe
 
 profile: 
 
-cuda-dev-graphs.exe: cuda-dev-graphs.cu
-	nvcc cuda-dev-graphs.cu -L /usr/local/cuda/lib -lcudart -o cuda-dev-graphs.exe -run
+5_nn_single_layer_graph_timing_less_sync.exe: 5_nn_single_layer_graph_timing_less_sync.cu
+	nvcc 5_nn_single_layer_graph_timing_less_sync.cu -L /usr/local/cuda/lib -lcudart -o 5_nn_single_layer_graph_timing_less_sync.exe -run
 
 clean:
-	rm cuda-dev-graphs.exe
+	rm 5_nn_single_layer_graph_timing_less_sync.exe
