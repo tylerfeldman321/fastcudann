@@ -1,5 +1,6 @@
-#include "../include/train.cuh"
 #include <cuda_runtime.h>
+#include <cublas_v2.h>
+#include "../include/train.cuh"
 #include "../include/utils.cuh"
 #include "../include/ops.cuh"
 
@@ -213,7 +214,7 @@ bool run_training_optimized(
     float learning_rate,
     int loss_print_period
 ) {
-    printf("Starting training (Periodic Loss Reporting)...\n");
+    printf("Starting training (Periodic Loss Reporting - cuBLAS)...\n"); // Indicate cuBLAS usage
     printf("Parameters:\n");
     printf("  Epochs: %d\n", num_epochs);
     printf("  Mini-batch Size: %d\n", mini_batch_size);
@@ -222,6 +223,10 @@ bool run_training_optimized(
     printf("  Output Size (Classes): %d\n", output_size);
     printf("  Total Training Samples: %d\n", total_train_samples);
     printf("  Loss Print Period: %d epochs\n", loss_print_period);
+
+    // --- cuBLAS Setup ---
+    cublasHandle_t cublas_handle;
+    cublasCreate(&cublas_handle);
 
     // --- Timing Setup ---
     cudaEvent_t epoch_start_event, epoch_stop_event;
@@ -266,25 +271,26 @@ bool run_training_optimized(
     int num_batches = (total_train_samples + mini_batch_size - 1) / mini_batch_size;
     printf("Total mini-batches per epoch: %d\n", num_batches);
 
-    // Define block sizes
     dim3 block_1d(BLOCK_SIZE_1D);
-    dim3 block_2d(BLOCK_DIM_2D, BLOCK_DIM_2D);
+
+    // --- cuBLAS Scalars ---
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
 
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
 
         CHECK_CUDA_ERROR(cudaEventRecord(epoch_start_event, 0));
 
-        // Reset GPU accumulators at the beginning of each epoch
         CHECK_CUDA_ERROR(cudaMemsetAsync(d_epoch_total_loss, 0, scalar_float_bytes, 0));
         CHECK_CUDA_ERROR(cudaMemsetAsync(d_epoch_total_correct, 0, scalar_int_bytes, 0));
 
-        long long epoch_total_processed = 0; // Track samples processed on CPU side
+        long long epoch_total_processed = 0;
 
         for (int batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
             int batch_start_idx = batch_idx * mini_batch_size;
             int current_batch_size = (batch_start_idx + mini_batch_size > total_train_samples) ?
-                                       (total_train_samples - batch_start_idx) :
-                                       mini_batch_size;
+                                      (total_train_samples - batch_start_idx) :
+                                      mini_batch_size;
 
             if (current_batch_size <= 0) continue;
 
@@ -293,75 +299,87 @@ bool run_training_optimized(
 
             // --- Forward Pass ---
             // 1. Calculate Logits (d_output = d_current_batch_images * d_weights)
-            dim3 matmul_grid = calculate_grid_size_2d(current_batch_size, output_size, block_2d);
-            matmul_kernel<<<matmul_grid, block_2d>>>(d_output, d_current_batch_images, d_weights, input_size, output_size, current_batch_size);
+            cublasSgemm(cublas_handle,
+                CUBLAS_OP_N, CUBLAS_OP_N,
+                output_size, current_batch_size, input_size,
+                &alpha,
+                d_weights, output_size,
+                d_current_batch_images, input_size,
+                &beta,
+                d_output, output_size);
 
             // 2. Calculate Probabilities (d_probabilities = softmax(d_output))
             int softmax_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
             softmax<<<softmax_grid, block_1d>>>(d_output, d_probabilities, current_batch_size, output_size);
+            CHECK_CUDA_ERROR(cudaGetLastError());
 
             // --- Loss and Accuracy Calculation (GPU Accumulation) ---
             // 3. Calculate Loss (per sample) and Accumulate total epoch loss on GPU
             int loss_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
-            // *** Requires kernel modification ***
-            // Assumes kernel writes per-sample loss to d_batch_losses AND atomically adds the sum of d_batch_losses to d_epoch_total_loss
             scce_loss_forward_kernel_accumulate<<<loss_grid, block_1d>>>(
                 d_probabilities, d_current_batch_labels, d_batch_losses, d_epoch_total_loss,
                 current_batch_size, output_size);
+             CHECK_CUDA_ERROR(cudaGetLastError());
+
 
             // 4. Calculate Accuracy and Accumulate total correct count on GPU
             int accuracy_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
-            // *** Requires kernel modification ***
-            // Assumes kernel atomically increments d_epoch_total_correct
             calculate_accuracy_kernel_accumulate<<<accuracy_grid, block_1d>>>(
                 d_probabilities, d_current_batch_labels, d_epoch_total_correct,
                 current_batch_size, output_size);
+             CHECK_CUDA_ERROR(cudaGetLastError());
 
             // --- Backward Pass ---
             // 5. Calculate Gradient of Loss w.r.t. Logits (dL/dZ)
             float grad_scale_factor = 1.0f / (float)current_batch_size;
             int backward_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
             scce_softmax_backward_kernel<<<backward_grid, block_1d>>>(d_probabilities, d_current_batch_labels, d_grad_logits, current_batch_size, output_size, grad_scale_factor);
+             CHECK_CUDA_ERROR(cudaGetLastError());
+
 
             // 6. Calculate Gradient of Loss w.r.t Weights (dL/dW = X^T * dL/dZ)
-            dim3 grad_weights_grid = calculate_grid_size_2d(input_size, output_size, block_2d);
-            calculate_weight_gradient_kernel<<<grad_weights_grid, block_2d>>>(d_grad_weights, d_current_batch_images, d_grad_logits, input_size, output_size, current_batch_size);
+            cublasSgemm(cublas_handle,
+                CUBLAS_OP_N, CUBLAS_OP_T,
+                output_size, input_size, current_batch_size,
+                &alpha,
+                d_grad_logits, output_size,
+                d_current_batch_images, input_size,
+                &beta,
+                d_grad_weights, output_size);
 
             // --- Update Weights ---
             // 7. Apply gradient descent step (Weights = Weights - LR * dL/dW)
             int update_grid = calculate_grid_size_1d(num_weights, BLOCK_SIZE_1D);
             update_weights_kernel<<<update_grid, block_1d>>>(d_weights, d_grad_weights, learning_rate, num_weights);
+            CHECK_CUDA_ERROR(cudaGetLastError()); // Check after kernel launch
 
             // --- Update CPU counter for total processed samples ---
             epoch_total_processed += current_batch_size;
         }
 
-        // Record Epoch Stop Time (GPU)
         CHECK_CUDA_ERROR(cudaEventRecord(epoch_stop_event, 0));
 
         // --- Conditional Loss/Accuracy Reporting ---
         bool should_print_loss = ((epoch + 1) % loss_print_period == 0) || (epoch == num_epochs - 1);
         if (should_print_loss) {
             CHECK_CUDA_ERROR(cudaEventSynchronize(epoch_stop_event));
-            CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
-            // Copy accumulated results from GPU to Host
             CHECK_CUDA_ERROR(cudaMemcpy(&h_epoch_total_loss, d_epoch_total_loss, scalar_float_bytes, cudaMemcpyDeviceToHost));
             CHECK_CUDA_ERROR(cudaMemcpy(&h_epoch_total_correct, d_epoch_total_correct, scalar_int_bytes, cudaMemcpyDeviceToHost));
 
             CHECK_CUDA_ERROR(cudaEventElapsedTime(&epoch_gpu_time_ms, epoch_start_event, epoch_stop_event));
-            
-            float average_loss = (epoch_total_processed > 0) ? (h_epoch_total_loss / epoch_total_processed) : 0.0f;
-            float accuracy = (epoch_total_processed > 0) ? (float)(h_epoch_total_correct * 100.0 / epoch_total_processed) : 0.0f;
+
+            long long total_samples_in_epoch = total_train_samples;
+
+            float average_loss = (total_samples_in_epoch > 0) ? (h_epoch_total_loss / total_samples_in_epoch) : 0.0f;
+            float accuracy = (total_samples_in_epoch > 0) ? (float)(h_epoch_total_correct * 100.0 / total_samples_in_epoch) : 0.0f;
 
             printf("Epoch [%d/%d], Average Loss: %.6f, Accuracy: %.2f%%, Epoch GPU Time: %.2f ms (%.3f s)\n",
                    epoch + 1, num_epochs, average_loss, accuracy, epoch_gpu_time_ms, epoch_gpu_time_ms / 1000.0f);
 
-        } else {
-             CHECK_CUDA_ERROR(cudaEventSynchronize(epoch_stop_event));
-             CHECK_CUDA_ERROR(cudaEventElapsedTime(&epoch_gpu_time_ms, epoch_start_event, epoch_stop_event));
         }
         CHECK_CUDA_ERROR(cudaGetLastError());
+
     }
 
     printf("Training complete!\n");
@@ -369,11 +387,12 @@ bool run_training_optimized(
     // --- Cleanup ---
     CHECK_CUDA_ERROR(cudaEventDestroy(epoch_start_event));
     CHECK_CUDA_ERROR(cudaEventDestroy(epoch_stop_event));
+    cublasDestroy(cublas_handle);
 
     CHECK_CUDA_ERROR(cudaFree(d_weights));
     CHECK_CUDA_ERROR(cudaFree(d_output));
     CHECK_CUDA_ERROR(cudaFree(d_probabilities));
-    CHECK_CUDA_ERROR(cudaFree(d_batch_losses));
+    CHECK_CUDA_ERROR(cudaFree(d_batch_losses)); // Free if allocated
     CHECK_CUDA_ERROR(cudaFree(d_grad_logits));
     CHECK_CUDA_ERROR(cudaFree(d_grad_weights));
     CHECK_CUDA_ERROR(cudaFree(d_epoch_total_loss));
