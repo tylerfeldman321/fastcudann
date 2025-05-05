@@ -1,4 +1,8 @@
 #include <iostream>
+#include <cuda_runtime.h>
+#include <cstdint>
+#include <cstdio>
+#include <chrono>
 #include "../include/mnist_reader_common.hpp"
 #include "../include/utils.cuh"
 #include "../include/ops.cuh"
@@ -73,6 +77,17 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
     printf("  Output Size (Classes): %d\n", output_size);
     printf("  Total Training Samples: %d\n", total_train_samples);
 
+    // --- Timing Setup ---
+    cudaEvent_t epoch_start_event, epoch_stop_event;
+    CHECK_CUDA_ERROR(cudaEventCreate(&epoch_start_event));
+    CHECK_CUDA_ERROR(cudaEventCreate(&epoch_stop_event));
+    float epoch_gpu_time_ms = 0.0f;
+
+    // For overall wall-clock time
+    using Clock = std::chrono::high_resolution_clock;
+    auto overall_start_time = Clock::now();
+    // --- End Timing Setup ---
+
     int num_weights = input_size * output_size;
     size_t weights_bytes = sizeof(float) * num_weights;
     // Allocate intermediate buffers based on MINI_BATCH_SIZE
@@ -112,6 +127,8 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
     dim3 block_2d(BLOCK_DIM_2D, BLOCK_DIM_2D);
 
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
+
+        CHECK_CUDA_ERROR(cudaEventRecord(epoch_start_event, 0));
 
         double epoch_total_loss = 0.0;
         long long epoch_total_correct = 0;
@@ -187,17 +204,27 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
 
         CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
+        // --- Record Epoch Stop Time (GPU) and Calculate Duration ---
+        CHECK_CUDA_ERROR(cudaEventRecord(epoch_stop_event, 0));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(epoch_stop_event));
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&epoch_gpu_time_ms, epoch_start_event, epoch_stop_event));
+
         // Calculate and log average loss and accuracy for the epoch
         float average_loss = (epoch_total_processed > 0) ? (float)(epoch_total_loss / epoch_total_processed) : 0.0f;
         float accuracy = (epoch_total_processed > 0) ? (float)(epoch_total_correct * 100.0 / epoch_total_processed) : 0.0f;
 
-        printf("Epoch [%d/%d], Average Loss: %.6f, Accuracy: %.2f%%\n",
-               epoch + 1, num_epochs, average_loss, accuracy);
-
-
+        printf("Epoch [%d/%d], Average Loss: %.6f, Accuracy: %.2f%%, Epoch GPU Time: %.2f ms (%.3f s)\n",
+                epoch + 1, num_epochs, average_loss, accuracy, epoch_gpu_time_ms, epoch_gpu_time_ms / 1000.0f);
     }
 
+    // --- Calculate and Print Overall Time ---
+    auto overall_end_time = Clock::now();
+    auto overall_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time - overall_start_time);
+    double overall_duration_s = overall_duration_ms.count() / 1000.0;
+
     printf("Training finished.\n");
+    printf("Overall Training Wall Time: %lld ms (%.3f s)\n", overall_duration_ms.count(), overall_duration_s);
+    // --- End Overall Timing ---
 
     // // --- Optional: Print some final weights/outputs (from the last batch state) ---
     // // Note: These outputs (logits, probs) only reflect the *last* mini-batch processed.
