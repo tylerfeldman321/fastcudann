@@ -7,3 +7,8 @@ train_mnist.exe: src/train_mnist.cu
 
 clean:
 	rm -f train_mnist.exe
+
+install_python_deps:
+	source .venv/bin/activate
+	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+	pip3 install numpy
