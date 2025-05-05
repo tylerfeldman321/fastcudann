@@ -58,7 +58,7 @@ __global__ void calculate_accuracy_kernel(const float* probabilities, const uint
 }
 
 
-bool run_training(float *d_all_train_images_float, // Pointer to ALL training images on device
+bool run_training_basic_implementation(float *d_all_train_images_float, // Pointer to ALL training images on device
                   uint8_t *d_all_train_labels,     // Pointer to ALL training labels on device
                   int total_train_samples,         // Total number of training samples (e.g., 60000)
                   int input_size,                  // Size of one input image (e.g., 784)
@@ -82,11 +82,6 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
     CHECK_CUDA_ERROR(cudaEventCreate(&epoch_start_event));
     CHECK_CUDA_ERROR(cudaEventCreate(&epoch_stop_event));
     float epoch_gpu_time_ms = 0.0f;
-
-    // For overall wall-clock time
-    using Clock = std::chrono::high_resolution_clock;
-    auto overall_start_time = Clock::now();
-    // --- End Timing Setup ---
 
     int num_weights = input_size * output_size;
     size_t weights_bytes = sizeof(float) * num_weights;
@@ -217,13 +212,7 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
                 epoch + 1, num_epochs, average_loss, accuracy, epoch_gpu_time_ms, epoch_gpu_time_ms / 1000.0f);
     }
 
-    // --- Calculate and Print Overall Time ---
-    auto overall_end_time = Clock::now();
-    auto overall_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time - overall_start_time);
-    double overall_duration_s = overall_duration_ms.count() / 1000.0;
-
     printf("Training finished.\n");
-    printf("Overall Training Wall Time: %lld ms (%.3f s)\n", overall_duration_ms.count(), overall_duration_s);
     // --- End Overall Timing ---
 
     // // --- Optional: Print some final weights/outputs (from the last batch state) ---
@@ -319,11 +308,17 @@ int main(int argc, char* argv[]) {
     // Free the temporary uint8 buffer on device
     CHECK_CUDA_ERROR(cudaFree(d_train_images_uint8));
 
-    // --- Run Training ---
+    // --- Run Training for Basic Implementation ---
     int num_classes = 10;
-    run_training(d_all_train_images_float, d_all_train_labels,
+    using Clock = std::chrono::high_resolution_clock;
+    auto overall_start_time = Clock::now();
+    run_training_basic_implementation(d_all_train_images_float, d_all_train_labels,
                  train_images_count, input_feature_size, num_classes,
                  NUM_EPOCHS, MINI_BATCH_SIZE, LEARNING_RATE);
+    auto overall_end_time = Clock::now();
+    auto overall_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time - overall_start_time);
+    double overall_duration_s = overall_duration_ms.count() / 1000.0;
+    printf("Overall Training Wall Time for basic MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms.count(), overall_duration_s);
 
     // --- Cleanup ---
     CHECK_CUDA_ERROR(cudaFree(d_all_train_images_float));
