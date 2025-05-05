@@ -212,7 +212,7 @@ for epoch in range(NUM_EPOCHS):
             optimizer.step()
 
         # Accumulate loss on GPU. Use detach() to free graph memory for the loss tensor.
-        epoch_loss_gpu += loss.detach()
+        epoch_loss_gpu += loss
 
     if device.type == 'cuda':
         torch.cuda.synchronize()
