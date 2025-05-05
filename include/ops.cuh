@@ -5,6 +5,7 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+
 __global__ void convert_and_normalize(const uint8_t* input, float* output, int num_elements) {
     int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
@@ -16,18 +17,23 @@ __global__ void convert_and_normalize(const uint8_t* input, float* output, int n
 __global__ void init_weights_uniform(float* data, size_t size, size_t seed) {
     size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     size_t stride = blockDim.x * gridDim.x;
+    // Initialize RNG state once per thread
+    curandState_t state;
+    // Ensure unique seed/sequence per thread even across blocks
+    curand_init((size_t)seed + thread_idx, 0, 0, &state);
+
     for (size_t data_idx = thread_idx; data_idx < size; data_idx+=stride) {
-        curandState_t state;
-        curand_init(data_idx+(size_t)seed, thread_idx, 0, &state);
+        // Use the initialized state
         float rand_val = curand_uniform(&state);
-        data[data_idx] = 2.0f * rand_val - 1.0f;
+        data[data_idx] = 2.0f * rand_val - 1.0f; // Range [-1.0, 1.0]
     }
 }
 
 
-__global__ void matmul_kernel(float *output, float *input, float *weights, int input_size, int output_size, int batch_size) {
-    int thread_id_x = blockDim.x * blockIdx.x + threadIdx.x;
-    int thread_id_y = blockDim.y * blockIdx.y + threadIdx.y;
+__global__ void matmul_kernel(float *output, const float *input, const float *weights, int input_size, int output_size, int batch_size) {
+    // Use 2D indexing for threads and blocks
+    int thread_id_x = blockDim.x * blockIdx.x + threadIdx.x; // Corresponds to sample_idx (batch dimension)
+    int thread_id_y = blockDim.y * blockIdx.y + threadIdx.y; // Corresponds to output_idx (output features)
 
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
@@ -38,8 +44,11 @@ __global__ void matmul_kernel(float *output, float *input, float *weights, int i
         for (int output_idx = thread_id_y; output_idx < output_size; output_idx += stride_y) {
             float value = 0.0f;
             for (int k = 0; k < input_size; ++k) {
+                // Access input: batch `sample_idx`, feature `k`
+                // Access weights: input feature `k`, output feature `output_idx`
                 value += input[sample_idx * input_size + k] * weights[k * output_size + output_idx];
             }
+            // Write output: batch `sample_idx`, feature `output_idx`
             output[sample_idx * output_size + output_idx] = value;
         }
     }
@@ -50,31 +59,34 @@ __global__ void softmax(const float* logits, float* probabilities, int batch_siz
     size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     size_t stride = blockDim.x * gridDim.x;
 
-    // Iterating through samples in the batch
-    for (size_t idx = thread_idx; idx < batch_size; idx+=stride) {
-        int offset = idx * num_classes;
+    // Iterating through samples in the batch (each thread handles one or more samples)
+    for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx+=stride) {
+        int offset = sample_idx * num_classes;
         const float* current_logits = logits + offset;
         float* current_probs = probabilities + offset;
 
-        // 1. Find max logit for numerical stability
+        // --- Find max logit for numerical stability ---
+        // Note: Could be optimized with block-level reduction for large num_classes
         float max_logit = -INFINITY;
         for (int j = 0; j < num_classes; ++j) {
             max_logit = fmaxf(max_logit, current_logits[j]);
         }
 
-        // 2. Calculate sum of exponentials (shifted)
+        // --- Calculate sum of exponentials (shifted) ---
+         // Note: Could be optimized with block-level reduction for large num_classes
         float sum_exp = 0.0f;
         for (int j = 0; j < num_classes; ++j) {
             sum_exp += expf(current_logits[j] - max_logit);
         }
 
-        // Add a small epsilon to prevent division by zero, though sum_exp should always be positive
+        // Add a small epsilon to prevent division by zero
         const float epsilon = 1e-12f;
-        sum_exp += epsilon;
+        sum_exp = fmaxf(sum_exp, epsilon); // Ensure sum_exp is at least epsilon
 
-        // 3. Calculate probabilities
+        // --- Calculate probabilities ---
+        float inv_sum_exp = 1.0f / sum_exp; // Compute inverse once
         for (int j = 0; j < num_classes; ++j) {
-            current_probs[j] = expf(current_logits[j] - max_logit) / sum_exp;
+            current_probs[j] = expf(current_logits[j] - max_logit) * inv_sum_exp;
         }
     }
 }
@@ -88,12 +100,19 @@ __global__ void scce_loss_forward_kernel(const float* probabilities,
 
     // Iterating through samples in the batch
     for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx+=stride) {
-        int prob_idx = sample_idx * num_classes + (int)true_labels[sample_idx];
+        int true_label_int = (int)true_labels[sample_idx];
+        // Bounds check (optional but safe)
+        if (true_label_int < 0 || true_label_int >= num_classes) {
+             // Handle error or assign a default high loss, prevent out-of-bounds access
+             losses[sample_idx] = 100.0f; // Example: Assign a high loss
+             continue;
+        }
+        int prob_idx = sample_idx * num_classes + true_label_int;
         float prob_true_class = probabilities[prob_idx];
 
         // Add small epsilon for numerical stability (prevent log(0))
         const float epsilon = 1e-9f;
-        losses[sample_idx] = -logf(prob_true_class + epsilon);
+        losses[sample_idx] = -logf(fmaxf(prob_true_class, epsilon)); // Ensure argument to logf is positive
     }
 }
 
@@ -101,12 +120,11 @@ __global__ void scce_loss_forward_kernel(const float* probabilities,
 __global__ void scce_softmax_backward_kernel(const float* probabilities,
     const uint8_t* true_labels,
     float* grad_logits,
-    int batch_size, int num_classes) {
+    int batch_size, int num_classes, float scale_factor) { // Added scale_factor
     size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     size_t stride = blockDim.x * gridDim.x;
 
-    float inv_batch_size = 1.0f / (float)batch_size;
-
+    // Iterating through samples in the batch
     for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx+=stride) {
         int offset = sample_idx * num_classes;
         const float* current_probs = probabilities + offset;
@@ -115,34 +133,42 @@ __global__ void scce_softmax_backward_kernel(const float* probabilities,
 
         for (int j = 0; j < num_classes; ++j) {
             float indicator = (j == true_label) ? 1.0f : 0.0f;
-            // Gradient = (Predicted Probability - True Label Indicator)
-            current_grad[j] = (current_probs[j] - indicator) * inv_batch_size;
+            // Gradient = (Predicted Probability - True Label Indicator) * scale_factor
+            // Scale factor is typically 1.0 / batch_size for averaging
+            current_grad[j] = (current_probs[j] - indicator) * scale_factor;
         }
     }
 }
 
 
 __global__ void calculate_weight_gradient_kernel(float* grad_weights,
-    const float* input_images,
-    const float* grad_logits,
+    const float* input_images, // Should point to the start of the current batch's images
+    const float* grad_logits,  // Should correspond to the current batch's gradients
     int input_size,
     int output_size,
-    int batch_size) {
+    int batch_size) {          // Should be the current mini-batch size
     // Each thread calculates one element of the grad_weights matrix
-    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x;   // Index for input_size (row of weights)
+    // Use 2D indexing
+    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x; // Index for input_size (row of weights)
     int thread_id_y = blockIdx.y * blockDim.y + threadIdx.y; // Index for output_size (column of weights)
 
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
 
+    // Iterate over the portion of the weight gradient matrix this thread is responsible for
     for (int input_idx = thread_id_x; input_idx < input_size; input_idx += stride_x) {
         for (int output_idx = thread_id_y; output_idx < output_size; output_idx += stride_y) {
             float gradient_sum = 0.0f;
+            // Sum contributions from all samples in the *current mini-batch*
             for (int sample_idx = 0; sample_idx < batch_size; ++sample_idx) {
+                // grad_weights[in, out] = sum_{batch} ( input[batch, in] * grad_logits[batch, out] )
                 gradient_sum += input_images[sample_idx * input_size + input_idx] *
-                grad_logits[sample_idx * output_size + output_idx];
+                                grad_logits[sample_idx * output_size + output_idx];
             }
 
+            // Write the final gradient for this weight element
+            // Note: This overwrites previous gradient. For accumulation across batches (if needed), use atomicAdd or calculate per batch and sum later.
+            // Standard SGD updates weights after each batch, so overwriting is correct here.
             int weight_grad_idx = input_idx * output_size + output_idx;
             grad_weights[weight_grad_idx] = gradient_sum;
         }
