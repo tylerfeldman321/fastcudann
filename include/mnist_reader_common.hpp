@@ -15,7 +15,13 @@
 #ifndef MNIST_READER_COMMON_HPP
 #define MNIST_READER_COMMON_HPP
 
-namespace mnist {
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <cstdint>
+#include <memory>
+
 
 /*!
  * \brief Extract the MNIST header from the given buffer
@@ -78,7 +84,5 @@ inline std::unique_ptr<char[]> read_mnist_file(const std::string& path, uint32_t
 
     return buffer;
 }
-
-} //end of namespace mnist
 
 #endif

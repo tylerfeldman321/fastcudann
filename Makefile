@@ -1,9 +1,9 @@
-all: 5_nn_single_layer_graph_timing_less_sync.exe
+all: train_mnist.exe
 
 profile: 
 
-5_nn_single_layer_graph_timing_less_sync.exe: 5_nn_single_layer_graph_timing_less_sync.cu
-	nvcc 5_nn_single_layer_graph_timing_less_sync.cu -L /usr/local/cuda/lib -lcudart -o 5_nn_single_layer_graph_timing_less_sync.exe -run
+train_mnist.exe: src/train_mnist.cu
+	nvcc src/train_mnist.cu -L /usr/local/cuda/lib -lcudart -o train_mnist.exe -run
 
 clean:
-	rm 5_nn_single_layer_graph_timing_less_sync.exe
+	rm -f train_mnist.exe
