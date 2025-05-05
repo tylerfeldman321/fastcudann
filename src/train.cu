@@ -202,7 +202,6 @@ bool run_training_basic_implementation(float *d_all_train_images_float, // Point
 }
 
 
-// --- Modified Training Function ---
 bool run_training_optimized(
     float *d_all_train_images_float,
     uint8_t *d_all_train_labels,
