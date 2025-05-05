@@ -1,9 +1,10 @@
 # fastcudann
 
 ## What
-Repo exploring neural network training optimizations with python and C++/CUDA based implementation
+Repo exploring neural network training optimizations with python and C++/CUDA based implementation. Training is done on the MNIST dataset with a fully connected classification neural network.
 
 ## Motivation
+Neural network training can take a very long time, particularly for large scale foundation models like large language models or vision foundation models. Any improvements in runtime can yield significant time savings over many epochs of training. 
 
 ## Prerequisites
 - Cuda 12.8+
@@ -17,7 +18,7 @@ sudo apt update
 # For torch.compile() to work
 sudo apt install python3-dev
 
-# Installing python dependencies into virtual environment
+# Creates virtual environment and installs python dependencies
 make setup_python_deps
 ```
 
