@@ -119,35 +119,11 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
 
         for (int batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
             int batch_start_idx = batch_idx * mini_batch_size;
-            // Determine the actual number of samples in this batch (can be smaller for the last one)
             int current_batch_size = (batch_start_idx + mini_batch_size > total_train_samples) ?
                                       (total_train_samples - batch_start_idx) :
                                       mini_batch_size;
 
-            if (current_batch_size <= 0) continue; // Should not happen with correct num_batches calculation
-
-            // Calculate pointers to the current mini-batch data within the full dataset buffers
-            // NOTE: For true SGD with shuffling, you'd ideally copy shuffled data to contiguous
-            // batch buffers or use indirect addressing via shuffled indices.
-            // This simplified approach uses contiguous slices but iterates in shuffled batch order.
-            // We will use the shuffled indices 'p' to get the *starting* sample index for the slice.
-            // This isn't perfect shuffling *within* the slice but better than nothing.
-            // A truly robust implementation would gather data based on 'p'. Let's keep it simple for now.
-            // int effective_start_idx = p[batch_start_idx]; // Index of the first sample for this batch slice
-            // float* d_current_batch_images = d_all_train_images_float + effective_start_idx * input_size;
-            // uint8_t* d_current_batch_labels = d_all_train_labels + effective_start_idx;
-            // ^^^ This simple slicing with shuffled start isn't ideal as slices might overlap/miss data if not careful.
-
-            // --- Alternative: Process batches sequentially but shuffle order ---
-            // This is simpler to implement correctly with pointer offsets.
-            // The order of batches is randomized by the outer loop's access to `p`.
-            // We'll process the data corresponding to indices p[batch_start_idx] through p[batch_start_idx + current_batch_size - 1].
-            // This requires **gathering** data, which is more complex.
-
-            // --- Simplest Approach for this Example: Sequential Slice Access ---
-            // We will iterate through batches sequentially but rely on the fact
-            // that weight updates happen frequently. We *won't* use the shuffled indices `p` directly
-            // for memory access here to avoid complexity, but acknowledge it's less ideal than true shuffling.
+            if (current_batch_size <= 0) continue;
             float* d_current_batch_images = d_all_train_images_float + batch_start_idx * input_size;
             uint8_t* d_current_batch_labels = d_all_train_labels + batch_start_idx;
 
@@ -167,12 +143,8 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
 
 
             // --- Loss Calculation & Logging ---
-            // Copy losses for the current batch from Device to Host
-            // Use cudaMemcpyAsync with a stream for potential overlap if needed later.
             CHECK_CUDA_ERROR(cudaMemcpy(h_losses, d_losses, sizeof(float) * current_batch_size, cudaMemcpyDeviceToHost));
-            // Synchronize *only* to ensure the loss copy is complete before CPU access.
-            // Kernels for this batch might still be running.
-            CHECK_CUDA_ERROR(cudaDeviceSynchronize()); // Essential before CPU access to h_losses
+            CHECK_CUDA_ERROR(cudaDeviceSynchronize());
 
             // Sum losses on the CPU for this batch
             double current_batch_total_loss = 0.0;
@@ -189,8 +161,7 @@ bool run_training(float *d_all_train_images_float, // Pointer to ALL training im
             calculate_accuracy_kernel<<<accuracy_grid, block_1d>>>(d_probabilities, d_current_batch_labels, d_correct_count, current_batch_size, output_size);
             // Copy the result back from GPU
             CHECK_CUDA_ERROR(cudaMemcpy(&h_correct_count, d_correct_count, accuracy_counter_bytes, cudaMemcpyDeviceToHost));
-            // Synchronize *only* to ensure the accuracy count copy is complete.
-            CHECK_CUDA_ERROR(cudaDeviceSynchronize()); // Essential before CPU access to h_correct_count
+            CHECK_CUDA_ERROR(cudaDeviceSynchronize());  // Synchronize ensure the accuracy count copy is complete.
             epoch_total_correct += h_correct_count;
 
 
