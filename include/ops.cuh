@@ -9,7 +9,7 @@ __global__ void convert_and_normalize(const uint8_t* input, float* output, int n
     int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int data_idx = thread_idx; data_idx < num_elements; data_idx += stride) {
-        output[thread_idx] = (float)input[thread_idx] / 255.0f;
+        output[data_idx] = (float)input[data_idx] / 255.0f;
     }
 }
 
@@ -23,6 +23,7 @@ __global__ void init_weights_uniform(float* data, size_t size, size_t seed) {
         data[data_idx] = 2.0f * rand_val - 1.0f;
     }
 }
+
 
 __global__ void matmul_kernel(float *output, float *input, float *weights, int input_size, int output_size, int batch_size) {
     int thread_id_x = blockDim.x * blockIdx.x + threadIdx.x;
@@ -44,46 +45,6 @@ __global__ void matmul_kernel(float *output, float *input, float *weights, int i
     }
 }
 
-
-// __global__ void sigmoid_kernel(float *output, float *input, int size) {
-//     int thread_idx = threadIdx.x + blockIdx.x * blockDim.x;
-//     int stride = blockDim.x * gridDim.x;
-//     for (size_t data_idx = thread_idx; data_idx < size; data_idx+=stride) {
-//         output[data_idx] = 1.0f / (1.0f + expf(-input[data_idx]));
-//     }
-// }
-
-
-// // CUDA kernel to calculate error (output - target)
-// __global__ void calc_error_kernel(float *error, float *output, uint8_t *target, int size) {
-//     int thread_idx = threadIdx.x + blockIdx.x * blockDim.x;
-//     int stride = blockDim.x * gridDim.x;
-//     for (size_t data_idx = thread_idx; data_idx < size; data_idx+=stride) {
-//         error[data_idx] = output[data_idx] - target[data_idx];
-//     }
-// }
-
-
-// // CUDA kernel to calculate the gradient for weights (during backpropagation)
-// __global__ void calc_gradient_kernel(float *gradient, float *input, float *error, int input_size, int batch_size) {
-//     int thread_idx = threadIdx.x + blockIdx.x * blockDim.x;
-//     int stride = blockDim.x * gridDim.x;
-//     for (size_t data_idx = thread_idx; data_idx < input_size; data_idx+=stride) {
-//         float grad = 0.0f;
-//         for (int i = 0; i < batch_size; ++i) {
-//             grad += input[i * input_size + data_idx] * error[i];
-//         }
-//         gradient[data_idx] = grad / batch_size;
-//     }
-// }
-
-// // CUDA kernel for weight update
-// __global__ void update_weights_kernel(float *weights, float *gradient, float learning_rate, int weight_size) {
-//     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-//     if (idx < weight_size) {
-//         weights[idx] -= learning_rate * gradient[idx];
-//     }
-// }
 
 __global__ void softmax(const float* logits, float* probabilities, int batch_size, int num_classes) {
     size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -137,26 +98,74 @@ __global__ void scce_loss_forward_kernel(const float* probabilities,
 }
 
 
-// __global__ void scce_softmax_backward_kernel(const float* probabilities,
-//     const uint8_t* true_labels,
-//     float* grad_logits,
-//     int batch_size, int num_classes) {
-//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void scce_softmax_backward_kernel(const float* probabilities,
+    const uint8_t* true_labels,
+    float* grad_logits,
+    int batch_size, int num_classes) {
+    size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
 
-//     if (idx < batch_size) {
-//         int offset = idx * num_classes;
-//         const float* current_probs = probabilities + offset;
-//         float* current_grad = grad_logits + offset;
-//         int true_label = (int)true_labels[idx];
+    float inv_batch_size = 1.0f / (float)batch_size;
 
-//         float inv_batch_size = 1.0f / (float)batch_size; // For calculating average gradient
-//         for (int j = 0; j < num_classes; ++j) {
-//             float indicator = (j == true_label) ? 1.0f : 0.0f;
-//             // Gradient = (Predicted Probability - True Label Indicator) / Batch Size
-//             current_grad[j] = (current_probs[j] - indicator) * inv_batch_size;
-//         }
-//     }
-// }
+    for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx+=stride) {
+        int offset = sample_idx * num_classes;
+        const float* current_probs = probabilities + offset;
+        float* current_grad = grad_logits + offset;
+        int true_label = (int)true_labels[sample_idx];
 
+        for (int j = 0; j < num_classes; ++j) {
+            float indicator = (j == true_label) ? 1.0f : 0.0f;
+            // Gradient = (Predicted Probability - True Label Indicator)
+            current_grad[j] = (current_probs[j] - indicator) * inv_batch_size;
+        }
+    }
+}
+
+
+__global__ void calculate_weight_gradient_kernel(float* grad_weights,
+    const float* input_images,
+    const float* grad_logits,
+    int input_size,
+    int output_size,
+    int batch_size) {
+    // Each thread calculates one element of the grad_weights matrix
+    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x;   // Index for input_size (row of weights)
+    int thread_id_y = blockIdx.y * blockDim.y + threadIdx.y; // Index for output_size (column of weights)
+
+    int stride_x = blockDim.x * gridDim.x;
+    int stride_y = blockDim.y * gridDim.y;
+
+    for (int input_idx = thread_id_x; input_idx < input_size; input_idx += stride_x) {
+        for (int output_idx = thread_id_y; output_idx < output_size; output_idx += stride_y) {
+            float gradient_sum = 0.0f;
+            for (int sample_idx = 0; sample_idx < batch_size; ++sample_idx) {
+                gradient_sum += input_images[sample_idx * input_size + input_idx] *
+                grad_logits[sample_idx * output_size + output_idx];
+            }
+
+            int weight_grad_idx = input_idx * output_size + output_idx;
+            grad_weights[weight_grad_idx] = gradient_sum;
+        }
+    }
+}
+
+/**
+* @brief Updates the weights using gradient descent.
+*
+* Performs the update: weights = weights - learning_rate * grad_weights
+*
+* @param weights Weights to be updated (size: num_weights).
+* @param grad_weights Calculated gradients for the weights (size: num_weights).
+* @param learning_rate The step size for the gradient descent update.
+* @param num_weights Total number of elements in the weights matrix (input_size * output_size).
+*/
+__global__ void update_weights_kernel(float* weights, const float* grad_weights, float learning_rate, int num_weights) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = idx; i < num_weights; i += stride) {
+        weights[i] -= learning_rate * grad_weights[i];
+    }
+}
 
 #endif

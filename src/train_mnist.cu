@@ -27,43 +27,78 @@ bool run_basic_implementation(float *d_train_images, uint8_t *d_train_labels) {
     size_t batch_size = 60000;
     float *h_weights = (float*)calloc(input_size*output_size, sizeof(float));
 
-    float *d_weights, *d_output, *d_probabilities, *d_losses;
-    checkCudaError(cudaMalloc((void**)&d_weights, sizeof(float)*input_size*output_size), "Allocating d_weights");
-    checkCudaError(cudaMalloc((void**)&d_output, sizeof(float)*batch_size*output_size), "Allocating d_output");
-    checkCudaError(cudaMalloc((void**)&d_probabilities, sizeof(float)*batch_size*output_size), "Allocating d_probabilities");
-    checkCudaError(cudaMalloc((void**)&d_losses, sizeof(float)*batch_size), "Allocating d_losses");
+    int num_weights = input_size * output_size;
+    size_t weights_bytes = sizeof(float)*input_size*output_size;
+    size_t output_bytes = sizeof(float)*batch_size*output_size;
+    size_t loss_bytes = sizeof(float)*batch_size;
 
-    // float *d_error, *d_gradient;
-    // checkCudaError(cudaMalloc((void**)&d_error, sizeof(float)*batch_size*output_size), "Allocating d_error");
-    // checkCudaError(cudaMalloc((void**)&d_gradient, sizeof(float) * INPUT_SIZE), "Allocating d_gradient");
-    // checkCudaError(cudaMalloc((void**)&d_train_labels, sizeof(h_target)), "Allocating d_target");
+    float *h_losses = (float*)malloc(loss_bytes);
 
+    float learning_rate = 0.5;
 
-    dim3 gridSize(1, 1);
-    dim3 blockSize(1, 1);
+    float *d_weights, *d_output, *d_probabilities, *d_losses, *d_grad_logits, *d_grad_weights;
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_weights, weights_bytes));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_output, output_bytes));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_probabilities, output_bytes));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_losses, loss_bytes));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_grad_logits, output_bytes));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_grad_weights, weights_bytes));
+
+    // Initialize weights
     init_weights_uniform<<<1, 1>>>(d_weights, input_size*output_size, 0);
 
-    matmul_kernel<<<gridSize, blockSize>>>(d_output, d_train_images, d_weights, input_size, output_size, batch_size);
-    softmax<<<1, 1>>>(d_output, d_probabilities, batch_size, output_size);
-    scce_loss_forward_kernel<<<1, 1>>>(d_probabilities, d_train_labels, d_losses, batch_size, output_size);
-    // TODO: Reduce d_losses
+    // Run forward and backward pass
+    dim3 gridSize(1, 1);
+    dim3 blockSize(1, 1);
+    int num_epochs = 100;
 
-    // sigmoid_kernel<<<1, 1>>>(d_output, d_output, batch_size*output_size);
-    // calc_error_kernel<<<1, 1>>>(d_error, d_output, d_train_labels, batch_size*output_size);
-    // calc_gradient_kernel<<<gridSize_input, blockSize, 0, baseline_stream>>>(d_gradient, d_input, d_error, INPUT_SIZE, BATCH_SIZE);
-    // update_weights_kernel<<<gridSize_weights, blockSize, 0, baseline_stream>>>(d_weights, d_gradient, LEARNING_RATE, INPUT_SIZE * OUTPUT_SIZE);
+    // --- Training Loop ---
+    printf("Starting training for %d epochs...\n", num_epochs);
+    for (int epoch = 0; epoch < num_epochs; ++epoch) {
+        printf("Epoch: %d\n", epoch);
 
-	// checkCudaError( cudaDeviceSynchronize() , "Sync before return");
-	// checkCudaError( cudaGetLastError() , "matmul_kernel");
+        // --- Forward Pass ---
+        // 1. Calculate Logits
+        matmul_kernel<<<gridSize, blockSize>>>(d_output, d_train_images, d_weights, input_size, output_size, batch_size);
 
-    // matmul_kernel<<<BATCH_SIZE, OUTPUT_SIZE, 0, stream>>>(d_output, d_input, d_weights, INPUT_SIZE, OUTPUT_SIZE, BATCH_SIZE);
-    // sigmoid_kernel<<<gridSize_batch_output, blockSize, 0, stream>>>(d_output, d_output, BATCH_SIZE * OUTPUT_SIZE);
-    // calc_error_kernel<<<gridSize_batch_output, blockSize, 0, stream>>>(d_error, d_output, d_target, BATCH_SIZE * OUTPUT_SIZE);
-    // calc_gradient_kernel<<<gridSize_input, blockSize, 0, stream>>>(d_gradient, d_input, d_error, INPUT_SIZE, BATCH_SIZE);
-    // update_weights_kernel<<<gridSize_weights, blockSize, 0, stream>>>(d_weights, d_gradient, LEARNING_RATE, INPUT_SIZE * OUTPUT_SIZE);
+        // 2. Calculate Probabilities
+        softmax<<<1, 1>>>(d_output, d_probabilities, batch_size, output_size);
+        
+        // 3. Calculate Loss (per sample)
+        scce_loss_forward_kernel<<<1, 1>>>(d_probabilities, d_train_labels, d_losses, batch_size, output_size);
 
-    checkCudaError(cudaMemcpy(h_weights, d_weights, sizeof(float)*input_size*output_size, cudaMemcpyDeviceToHost), "Copying weights to host");
-    checkCudaError( cudaDeviceSynchronize() , "Sync before accessing weights");
+        // --- Loss Calculation & Logging ---
+        CHECK_CUDA_ERROR(cudaMemcpy(h_losses, d_losses, loss_bytes, cudaMemcpyDeviceToHost));
+        CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+        double total_loss = 0.0;
+        for (int i = 0; i < batch_size; ++i) {
+            total_loss += h_losses[i];
+        }
+        float average_loss = (float)(total_loss / batch_size);
+        if ((epoch + 1) % 1 == 0 || epoch == 0 || epoch == num_epochs - 1) {
+           printf("Epoch [%d/%d], Average Loss: %f\n", epoch + 1, num_epochs, average_loss);
+        }
+
+
+        // --- Backward Pass ---
+        // 4. Calculate Gradient of Loss w.r.t. Logits (dL/dZ)
+        scce_softmax_backward_kernel<<<1, 1>>>(d_probabilities, d_train_labels, d_grad_logits, batch_size, output_size);
+
+        // 5. Calculate Gradient of Loss w.r.t Weights (dL/dW)
+        calculate_weight_gradient_kernel<<<gridSize, blockSize>>>(d_grad_weights, d_train_images, d_grad_logits, input_size, output_size, batch_size);
+
+        // --- Update Weights ---
+        // 6. Apply gradient descent step
+        update_weights_kernel<<<1, 1>>>(d_weights, d_grad_weights, learning_rate, num_weights);
+
+        CHECK_CUDA_ERROR(cudaGetLastError());
+    }
+
+    printf("Training finished.\n");
+    cudaDeviceSynchronize();
+
+    CHECK_CUDA_ERROR(cudaMemcpy(h_weights, d_weights, sizeof(float)*input_size*output_size, cudaMemcpyDeviceToHost));
+    CHECK_CUDA_ERROR( cudaDeviceSynchronize());
     std::cout << "Weights: ";
     for (int i = 0; i < 10; i++)
         std::cout << h_weights[i] << " ";
@@ -71,8 +106,8 @@ bool run_basic_implementation(float *d_train_images, uint8_t *d_train_labels) {
     free(h_weights);
 
     float* h_output = (float*)malloc(batch_size*output_size*sizeof(float));
-    checkCudaError(cudaMemcpy(h_output, d_output, sizeof(float)*batch_size*output_size, cudaMemcpyDeviceToHost), "Copying output to host");
-    checkCudaError( cudaDeviceSynchronize() , "Sync before accessing output");
+    CHECK_CUDA_ERROR(cudaMemcpy(h_output, d_output, sizeof(float)*batch_size*output_size, cudaMemcpyDeviceToHost));
+    CHECK_CUDA_ERROR( cudaDeviceSynchronize());
     std::cout << "Logits: ";
     for (int i = 0; i < 10; i++)
         std::cout << h_output[i] << " ";
@@ -80,8 +115,8 @@ bool run_basic_implementation(float *d_train_images, uint8_t *d_train_labels) {
     free(h_output);
 
     float* h_prob = (float*)malloc(batch_size*output_size*sizeof(float));
-    checkCudaError(cudaMemcpy(h_prob, d_probabilities, sizeof(float)*batch_size*output_size, cudaMemcpyDeviceToHost), "Copying prob to host");
-    checkCudaError( cudaDeviceSynchronize() , "Sync before accessing prob");
+    CHECK_CUDA_ERROR(cudaMemcpy(h_prob, d_probabilities, sizeof(float)*batch_size*output_size, cudaMemcpyDeviceToHost));
+    CHECK_CUDA_ERROR(cudaDeviceSynchronize());
     std::cout << "Probabilities: ";
     float sum = 0;
     for (int i = 0; i < 10; i++){
@@ -90,6 +125,13 @@ bool run_basic_implementation(float *d_train_images, uint8_t *d_train_labels) {
     std::cout << std::endl;
     std::cout << sum << std::endl;
     free(h_prob);
+
+    CHECK_CUDA_ERROR(cudaFree(d_weights));
+    CHECK_CUDA_ERROR(cudaFree(d_output));
+    CHECK_CUDA_ERROR(cudaFree(d_probabilities));
+    CHECK_CUDA_ERROR(cudaFree(d_losses));
+    CHECK_CUDA_ERROR(cudaFree(d_grad_logits));
+    CHECK_CUDA_ERROR(cudaFree(d_grad_weights));
 
     return true;
 }
@@ -140,17 +182,17 @@ int main(int argc, char* argv[]) {
     uint8_t *d_train_images_uint8, *d_train_labels;
     size_t num_training_pixels = (size_t)train_images_count*train_images_rows*train_images_columns;
     size_t training_labels_size = sizeof(uint8_t)*train_labels_count;
-    checkCudaError(cudaMalloc((void**)&d_train_images_uint8, sizeof(uint8_t)*num_training_pixels), "Allocating d_train_images_uint8");
-    checkCudaError(cudaMalloc((void**)&d_train_labels, training_labels_size), "Allocating d_train_labels");
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_train_images_uint8, sizeof(uint8_t)*num_training_pixels));
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_train_labels, training_labels_size));
 
-    checkCudaError(cudaMemcpy(d_train_images_uint8, train_images, sizeof(uint8_t)*num_training_pixels, cudaMemcpyHostToDevice), "Copying training images to device");
-    checkCudaError(cudaMemcpy(d_train_labels, train_labels, training_labels_size, cudaMemcpyHostToDevice), "Copying training labels to device");
+    CHECK_CUDA_ERROR(cudaMemcpy(d_train_images_uint8, train_images, sizeof(uint8_t)*num_training_pixels, cudaMemcpyHostToDevice));
+    CHECK_CUDA_ERROR(cudaMemcpy(d_train_labels, train_labels, training_labels_size, cudaMemcpyHostToDevice));
 
     // Convert uint8_t data to normalized floats
     float *d_train_images_float;
-    checkCudaError(cudaMalloc((void**)&d_train_images_float, sizeof(float) * num_training_pixels), "Allocating d_train_images_float");
+    CHECK_CUDA_ERROR(cudaMalloc((void**)&d_train_images_float, sizeof(float) * num_training_pixels));
     convert_and_normalize<<<256, 256>>>(d_train_images_uint8, d_train_images_float, num_training_pixels);
-    checkCudaError(cudaFree(d_train_images_uint8), "Freeing d_train_images");
+    CHECK_CUDA_ERROR(cudaFree(d_train_images_uint8));
 
     run_basic_implementation(d_train_images_float, d_train_labels);
         
@@ -158,7 +200,8 @@ int main(int argc, char* argv[]) {
     // TODO: Run my implementation with graphs, reduce synchronization
     // TODO: Run cudNN
 
-    checkCudaError(cudaFree(d_train_labels), "Freeing d_train_labels");
+    CHECK_CUDA_ERROR(cudaFree(d_train_images_float));
+    CHECK_CUDA_ERROR(cudaFree(d_train_labels));
 
     return 0;
 }

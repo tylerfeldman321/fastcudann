@@ -3,12 +3,12 @@
 
 #include <iostream>
 
-// Wrapper function to handle CUDA error checking
-void checkCudaError(cudaError_t error, const char *message) {
-    if (error != cudaSuccess) {
-        std::cerr << "CUDA Error: " << message << " - " << cudaGetErrorString(error) << std::endl;
+static void checkCudaError(cudaError_t err, const char *file, int line) {
+    if (err != cudaSuccess) {
+        printf("%s in %s at line %d\n", cudaGetErrorString(err), file, line);
         exit(EXIT_FAILURE);
     }
 }
+#define CHECK_CUDA_ERROR(err) (checkCudaError(err, __FILE__, __LINE__))
 
 #endif
