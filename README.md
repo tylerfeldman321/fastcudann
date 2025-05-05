@@ -1,18 +1,36 @@
 # fastcudann
 
 ## What
-This is a repo for fast neural network training using self updating CUDA graphs. This means we can launch a graph to do N epochs of training and only synchronize the GPU once those are done.
+Repo exploring neural network training optimizations with python and C++/CUDA based implementation
 
-## Motivation - Why?
-Minimize neural network training time! We often don't need to check weights and losses every epoch so instead we can use CUDA graphs to launch a task for training N epochs and synchronize once those epochs are done. This will greatly minimize launch latency of kernels compared to other frameworks that synchronize with the GPU very often, giving a tradeoff of close monitoring of losses vs. training time. The improved training time should make large differences for networks that take a long time to train.
+## Motivation
 
 ## Prerequisites
 - Cuda 12.8+
 - gcc 11.4+
+- Python 3.12
+
+## Installing Additional Dependencies
+```bash
+sudo apt update
+
+# For torch.compile() to work
+sudo apt install python3-dev
+
+# Installing python dependencies into virtual environment
+make setup_python_deps
+```
 
 ## Building and Running
+
+### C++/CUDA
 ```bash
 make clean && make
+```
+
+### Python Code
+```bash
+make profile_python
 ```
 
 ## Resources

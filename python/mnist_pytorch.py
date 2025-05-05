@@ -21,7 +21,7 @@ NUM_CLASSES = 10
 print("Loading MNIST dataset...")
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
+    transforms.Normalize((0.1307,), (0.3081,)) # Mean and Std deviation for MNIST
 ])
 
 train_dataset = torchvision.datasets.MNIST(root='./data',
@@ -37,13 +37,14 @@ print(f"Dataset loaded. Number of training samples: {len(train_dataset)}")
 print(f"Mini-batch size: {MINI_BATCH_SIZE}")
 print(f"Number of mini-batches per epoch: {len(train_loader)}")
 
+# --- Model Definition ---
 class LogisticRegression(nn.Module):
     def __init__(self, input_size, num_classes):
         super(LogisticRegression, self).__init__()
         self.linear = nn.Linear(input_size, num_classes)
 
     def forward(self, x):
-        x = x.view(x.size(0), -1)  # flatten image
+        x = x.view(x.size(0), -1)
         out = self.linear(x)
         return out
 
@@ -56,52 +57,47 @@ print(f"\nInitializing training for {NUM_EPOCHS} epochs...")
 print(f"Learning Rate: {LEARNING_RATE}")
 print(f"Optimizer: SGD")
 print(f"Loss Function: CrossEntropyLoss")
+
 # --- Training Loop ---
 total_start_time = time.time()
 epoch_times = []
 
+# Set model to training mode
 model.train()
 
 for epoch in range(NUM_EPOCHS):
     epoch_start_time = time.time()
-    # --- MODIFICATION: Initialize loss accumulator on the GPU ---
-    epoch_loss_sum = torch.tensor(0.0, device=device)
+    epoch_loss = 0.0
     num_batches = 0
 
     for i, (images, labels) in enumerate(train_loader):
         # 1. Prepare Data and move to device (GPU or CPU)
-        images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
+        images = images.to(device)
+        labels = labels.to(device)
 
         # 2. Zero the gradients
-        optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad()
 
-        # 3. Forward Pass with Automatic Mixed Precision context
-        with torch.cuda.amp.autocast(enabled=use_amp):
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+        # 3. Forward Pass
+        outputs = model(images)
 
-        # 4. Backward Pass (Compute Gradients with Scaling)
-        scaler.scale(loss).backward()
+        # 4. Calculate Loss
+        loss = criterion(outputs, labels)
 
-        # 5. Update Parameters (Optimizer Step with Unscaling)
-        scaler.step(optimizer)
+        # 5. Backward Pass
+        loss.backward()
 
-        # 6. Update the scale factor for the next iteration.
-        scaler.update()
+        # 6. Update Parameters
+        optimizer.step()
 
-        # --- MODIFICATION: Accumulate loss on GPU using detach() ---
-        # .detach() prevents holding onto the computation graph history across iterations
-        epoch_loss_sum += loss.detach()
+        # Accumulate loss for the epoch
+        epoch_loss += loss.item()
         num_batches += 1
 
-    # --- End of Epoch ---
     epoch_end_time = time.time()
     epoch_duration = epoch_end_time - epoch_start_time
     epoch_times.append(epoch_duration)
-
-    # --- MODIFICATION: Synchronize ONCE per epoch for logging ---
-    average_epoch_loss = epoch_loss_sum.item() / num_batches
+    average_epoch_loss = epoch_loss / num_batches
     print(f"Epoch [{epoch+1}/{NUM_EPOCHS}], Average Loss: {average_epoch_loss:.4f}, Time: {epoch_duration:.2f} seconds")
 
 # --- End of Training ---
