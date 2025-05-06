@@ -43,8 +43,3 @@ The command below will run each of the python implementations (numpy CPU, PyTorc
 make profile_python
 ```
 
-## Resources
-- https://developer.nvidia.com/blog/cuda-graphs/
-- https://docs.nvidia.com/cuda/index.html
-- https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cuda-graphs
-- https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__GRAPH.html#group__CUDART__GRAPH
