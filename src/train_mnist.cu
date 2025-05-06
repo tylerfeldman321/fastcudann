@@ -120,10 +120,10 @@ int main(int argc, char* argv[]) {
     double overall_duration_s_optimized = overall_duration_ms_optimized.count() / 1000.0;
     printf("Overall Training Wall Time for optimized MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms_optimized.count(), overall_duration_s_optimized);
 
-    printf("------------ Running Optimized + CUDNN Softmax NN Training Implementation ------------\n");
+    printf("------------ Running Optimized + CUDNN Softmax + Graphs NN Training Implementation ------------\n");
     using Clock = std::chrono::high_resolution_clock;
     auto overall_start_time_cudnn = Clock::now();
-    run_training_cudnn(d_all_train_images_float, d_all_train_labels,
+    run_training_optimized_cudnn_and_graphs(d_all_train_images_float, d_all_train_labels,
                  train_images_count, input_feature_size, num_classes,
                  NUM_EPOCHS, MINI_BATCH_SIZE, LEARNING_RATE);
     auto overall_end_time_cudnn = Clock::now();
