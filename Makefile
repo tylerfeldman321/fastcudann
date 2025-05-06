@@ -16,7 +16,11 @@ setup_python_deps:
 	$(VENV_PIP) install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 profile_python: $(VENV_PYTHON)
-	echo "Running python code..."
+	echo "========== Running mnist_pytorch_optimized.py =========="
 	$(VENV_PYTHON) python/mnist_pytorch_optimized.py
+
+	echo "========== Running mnist_pytorch.py =========="
 	$(VENV_PYTHON) python/mnist_pytorch.py
+
+	echo "========== Running mnist_pytorch_optimized =========="
 	$(VENV_PYTHON) python/mnist_numpy.py
