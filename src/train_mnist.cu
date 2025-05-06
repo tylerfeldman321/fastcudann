@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     std::cout << "MNIST data directory: " << MNIST_DATA_LOCATION << std::endl;
 
     // Read train images
-    auto mnist_train_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/train-images.idx3-ubyte", 0x803);
+    auto mnist_train_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/train-images-idx3-ubyte", 0x803);
     int train_images_count   = static_cast<int>(read_header(mnist_train_data_buffer, 1));
     int train_images_rows    = static_cast<int>(read_header(mnist_train_data_buffer, 2));
     int train_images_columns = static_cast<int>(read_header(mnist_train_data_buffer, 3));
@@ -45,13 +45,13 @@ int main(int argc, char* argv[]) {
     std::cout << "Train images: " << train_images_count << " [" << train_images_rows << "x" << train_images_columns << "]" << std::endl;
 
     // Read train labels
-    auto mnist_train_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/train-labels.idx1-ubyte", 0x801);
+    auto mnist_train_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/train-labels-idx1-ubyte", 0x801);
     auto train_labels_count = read_header(mnist_train_labels_data_buffer, 1);
     auto train_labels = reinterpret_cast<uint8_t*>(mnist_train_labels_data_buffer.get() + 8);
     std::cout << "Train labels: " << train_labels_count << std::endl;
 
     // Read test images (optional - not used in training, but good to have)
-    auto mnist_test_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-images.idx3-ubyte", 0x803);
+    auto mnist_test_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-images-idx3-ubyte", 0x803);
     int test_images_count   = static_cast<int>(read_header(mnist_test_data_buffer, 1));
     int test_images_rows    = static_cast<int>(read_header(mnist_test_data_buffer, 2));
     int test_images_columns = static_cast<int>(read_header(mnist_test_data_buffer, 3));
@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Test images: " << test_images_count << std::endl;
 
     // Read test labels
-    auto mnist_test_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-labels.idx1-ubyte", 0x801);
+    auto mnist_test_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-labels-idx1-ubyte", 0x801);
     auto test_labels_count = read_header(mnist_test_labels_data_buffer, 1);
     auto test_labels = reinterpret_cast<uint8_t*>(mnist_test_labels_data_buffer.get() + 8);
     std::cout << "Test labels: " << test_labels_count << std::endl;
