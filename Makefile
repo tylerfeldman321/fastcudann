@@ -17,6 +17,6 @@ setup_python_deps:
 
 profile_python: $(VENV_PYTHON)
 	echo "Running python code..."
-	$(VENV_PYTHON) python/mnist_numpy.py
-	$(VENV_PYTHON) python/mnist_pytorch.py
 	$(VENV_PYTHON) python/mnist_pytorch_optimized.py
+	$(VENV_PYTHON) python/mnist_pytorch.py
+	$(VENV_PYTHON) python/mnist_numpy.py

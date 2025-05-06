@@ -30,11 +30,15 @@ make setup_python_deps
 ## Building and Running
 
 ### C++/CUDA
+
+This command will compile the program and run it. It will print out profiling information as it runs.
 ```bash
 make clean && make
 ```
 
 ### Python Code
+
+The command below will run each of the python implementations (numpy CPU, PyTorch GPU, PyTorch GPU optimized) one after the other. Note that this will take a while (around 5 minutes or so).
 ```bash
 make profile_python
 ```
