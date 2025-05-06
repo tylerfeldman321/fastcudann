@@ -11,6 +11,12 @@ static void checkCudaError(cudaError_t err, const char *file, int line) {
 }
 #define CHECK_CUDA_ERROR(err) (checkCudaError(err, __FILE__, __LINE__))
 
+#define CHECK_CUDNN_ERROR(status) \
+    if (status != CUDNN_STATUS_SUCCESS) { \
+        fprintf(stderr, "cuDNN Error: %s at %s:%d\n", cudnnGetErrorString(status), __FILE__, __LINE__); \
+        /* Consider adding exit(EXIT_FAILURE); */ \
+    }
+
 // Helper function to calculate grid size for 1D kernels
 inline int calculate_grid_size_1d(int num_elements, int block_size) {
     return (num_elements + block_size - 1) / block_size;

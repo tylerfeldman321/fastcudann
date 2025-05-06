@@ -32,4 +32,16 @@ bool run_training_optimized(
     int loss_print_period = 10       // How often to compute/print loss (epochs)
 );
 
+bool run_training_cudnn( // Renamed for clarity
+    float *d_all_train_images_float,
+    uint8_t *d_all_train_labels,
+    int total_train_samples,
+    int input_size,      // Number of features per image (e.g., 784 for MNIST)
+    int output_size,     // Number of classes (e.g., 10 for MNIST)
+    int num_epochs,
+    int mini_batch_size,
+    float learning_rate,
+    int loss_print_period = 10
+);
+
 #endif // TRAIN_CUH

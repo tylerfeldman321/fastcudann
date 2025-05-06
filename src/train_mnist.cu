@@ -50,19 +50,19 @@ int main(int argc, char* argv[]) {
     auto train_labels = reinterpret_cast<uint8_t*>(mnist_train_labels_data_buffer.get() + 8);
     std::cout << "Train labels: " << train_labels_count << std::endl;
 
-    // Read test images (optional - not used in training, but good to have)
-    auto mnist_test_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-images-idx3-ubyte", 0x803);
-    int test_images_count   = static_cast<int>(read_header(mnist_test_data_buffer, 1));
-    int test_images_rows    = static_cast<int>(read_header(mnist_test_data_buffer, 2));
-    int test_images_columns = static_cast<int>(read_header(mnist_test_data_buffer, 3));
-    uint8_t* test_images = reinterpret_cast<uint8_t*>(mnist_test_data_buffer.get() + 16);
-    std::cout << "Test images: " << test_images_count << std::endl;
+    // // Read test images (optional - not used in training, but good to have)
+    // auto mnist_test_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-images-idx3-ubyte", 0x803);
+    // int test_images_count   = static_cast<int>(read_header(mnist_test_data_buffer, 1));
+    // int test_images_rows    = static_cast<int>(read_header(mnist_test_data_buffer, 2));
+    // int test_images_columns = static_cast<int>(read_header(mnist_test_data_buffer, 3));
+    // uint8_t* test_images = reinterpret_cast<uint8_t*>(mnist_test_data_buffer.get() + 16);
+    // std::cout << "Test images: " << test_images_count << std::endl;
 
-    // Read test labels
-    auto mnist_test_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-labels-idx1-ubyte", 0x801);
-    auto test_labels_count = read_header(mnist_test_labels_data_buffer, 1);
-    auto test_labels = reinterpret_cast<uint8_t*>(mnist_test_labels_data_buffer.get() + 8);
-    std::cout << "Test labels: " << test_labels_count << std::endl;
+    // // Read test labels
+    // auto mnist_test_labels_data_buffer = read_mnist_file(MNIST_DATA_LOCATION + "/t10k-labels-idx1-ubyte", 0x801);
+    // auto test_labels_count = read_header(mnist_test_labels_data_buffer, 1);
+    // auto test_labels = reinterpret_cast<uint8_t*>(mnist_test_labels_data_buffer.get() + 8);
+    // std::cout << "Test labels: " << test_labels_count << std::endl;
 
     if (train_images_count != train_labels_count) {
         std::cerr << "Error: Mismatch between number of training images and labels." << std::endl;
@@ -96,8 +96,9 @@ int main(int argc, char* argv[]) {
     // Free the temporary uint8 buffer on device
     CHECK_CUDA_ERROR(cudaFree(d_train_images_uint8));
 
-    // --- Run Training for Basic Implementation ---
     int num_classes = 10;
+
+    printf("------------ Running Basic NN Training Implementation ------------\n");
     using Clock = std::chrono::high_resolution_clock;
     auto overall_start_time = Clock::now();
     run_training_basic_implementation(d_all_train_images_float, d_all_train_labels,
@@ -108,6 +109,7 @@ int main(int argc, char* argv[]) {
     double overall_duration_s = overall_duration_ms.count() / 1000.0;
     printf("Overall Training Wall Time for basic MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms.count(), overall_duration_s);
 
+    printf("------------ Running Optimized NN  Training Implementation ------------\n");
     using Clock = std::chrono::high_resolution_clock;
     auto overall_start_time_optimized = Clock::now();
     run_training_optimized(d_all_train_images_float, d_all_train_labels,
@@ -116,7 +118,19 @@ int main(int argc, char* argv[]) {
     auto overall_end_time_optimized = Clock::now();
     auto overall_duration_ms_optimized = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time_optimized - overall_start_time_optimized);
     double overall_duration_s_optimized = overall_duration_ms_optimized.count() / 1000.0;
-    printf("Overall Training Wall Time for basic MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms_optimized.count(), overall_duration_s_optimized);
+    printf("Overall Training Wall Time for optimized MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms_optimized.count(), overall_duration_s_optimized);
+
+    printf("------------ Running Optimized + CUDNN Softmax NN Training Implementation ------------\n");
+    using Clock = std::chrono::high_resolution_clock;
+    auto overall_start_time_cudnn = Clock::now();
+    run_training_cudnn(d_all_train_images_float, d_all_train_labels,
+                 train_images_count, input_feature_size, num_classes,
+                 NUM_EPOCHS, MINI_BATCH_SIZE, LEARNING_RATE);
+    auto overall_end_time_cudnn = Clock::now();
+    auto overall_duration_ms_cudnn = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time_cudnn - overall_start_time_cudnn);
+    double overall_duration_s_cudnn = overall_duration_ms_cudnn.count() / 1000.0;
+    printf("Overall Training Wall Time for CUDNN MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms_cudnn.count(), overall_duration_s_cudnn);
+
 
     // --- Cleanup ---
     CHECK_CUDA_ERROR(cudaFree(d_all_train_images_float));
