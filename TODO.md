@@ -4,12 +4,11 @@
 - [x] Get device working launched graphs with simple kernel
 - [x] Implement single layer NN
 - [x] Implementation on real dataset
-- [ ] Benchmarking code
-- [ ] Add Optimizations: fused kernels, shared memory, special operations, reducing synchronization, etc
-- [ ] Implementation with cuDNN
+- [x] Benchmarking code
+- [x] Add Optimizations: fused kernels, shared memory, special operations, reducing synchronization, etc
+- [x] Implementation with cuDNN
 - [ ] Pybind11??
-- [ ] Compare with numpy CPU and pytorch GPU
-- [ ] Implement with cuDNN
+- [x] Compare with numpy CPU and pytorch GPU
 
 # Report
 - [ ] Comparison of each method - benchmarks, ease of use, etc
