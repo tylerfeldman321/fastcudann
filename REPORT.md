@@ -60,6 +60,7 @@ Runtime measurements were taken using an approximate average epoch time from the
 | + cuBLAS matrix multiplication                                           | ~20.73 ms             | 439 ms                |
 | + only performing loss & accuracy calculation every 10 epochs            | ~19 ms                | 398 ms                |
 | + CUDNN implementation of softmax                                        | ~18 ms                | 386 ms                |
+| + CUDA Graphs to minimize kernel launch latencies                        | ~17 ms                | 367 ms                |
 | Python, Numpy, CPU                                                       | ~12500 ms             | 251360 ms             |
 | Simple Pytorch GPU                                                       | ~10500 ms             | 211260 ms             |
 | + torch.compile(), pinned memory, AMP, preloading dataset                | ~600 ms               | 14610 ms              |
