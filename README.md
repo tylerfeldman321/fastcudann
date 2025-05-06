@@ -9,13 +9,17 @@ Neural network training can take a very long time, particularly for large scale 
 ## Prerequisites
 - Cuda 12.8+
 - gcc 11.4+
-- Python 3.12
+- Python 3.12+
 
 ## Installing Additional Dependencies
 ```bash
 sudo apt update
 
-# For torch.compile() to work
+# Install cudnn
+sudo apt-get install zlib1g
+sudo apt-get -y install cudnn9-cuda-12
+
+# For torch.compile()
 sudo apt install python3-dev
 
 # Creates virtual environment and installs python dependencies
