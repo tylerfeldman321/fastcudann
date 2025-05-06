@@ -205,3 +205,29 @@ __global__ void scce_loss_and_accuracy_kernel_accumulate(
         }
     }
 }
+
+
+__global__ void compute_logit_gradient_kernel(
+    const float* probabilities,
+    const uint8_t* labels,
+    float* d_grad_logits,
+    int batch_size,
+    int num_classes,
+    float scale_factor
+) {
+    for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
+         idx < batch_size * num_classes;
+         idx += gridDim.x * blockDim.x) {
+
+        int sample_idx = idx / num_classes;
+        int class_idx = idx % num_classes; 
+
+        float prob = probabilities[idx];
+        uint8_t true_label = labels[sample_idx];
+
+        float target = (class_idx == true_label) ? 1.0f : 0.0f;
+
+        d_grad_logits[idx] = (prob - target) * scale_factor;
+    }
+}
+

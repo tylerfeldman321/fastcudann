@@ -402,32 +402,6 @@ bool run_training_optimized(
 }
 
 
-__global__ void compute_logit_gradient_kernel(
-    const float* probabilities,     // Input: Output of softmax
-    const uint8_t* labels,          // Input: True labels (indices)
-    float* d_grad_logits,           // Output: Gradient w.r.t. logits (input to softmax)
-    int batch_size,
-    int num_classes,
-    float scale_factor              // Typically 1.0f / batch_size
-) {
-    // Grid-stride loop is safer for arbitrary sizes
-    for (int idx = blockIdx.x * blockDim.x + threadIdx.x;
-         idx < batch_size * num_classes;
-         idx += gridDim.x * blockDim.x) {
-
-        int sample_idx = idx / num_classes; // Which sample in the batch
-        int class_idx = idx % num_classes;  // Which class logit/probability
-
-        float prob = probabilities[idx];
-        uint8_t true_label = labels[sample_idx];
-
-        float target = (class_idx == true_label) ? 1.0f : 0.0f;
-
-        d_grad_logits[idx] = (prob - target) * scale_factor;
-    }
-}
-
-
 bool run_training_cudnn(
     float *d_all_train_images_float,
     uint8_t *d_all_train_labels,
