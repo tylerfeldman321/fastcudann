@@ -1,7 +1,7 @@
 VENV_PYTHON = .venv/bin/python3
 VENV_PIP = .venv/bin/pip3
 
-all: train_mnist.exe
+all: train_mnist.exe setup_python_deps profile_python
 
 train_mnist.exe: src/train_mnist.cu
 	nvcc src/train_mnist.cu src/ops.cu src/train.cu -L /usr/local/cuda/lib -lcudart -lcublas -lcudnn -o train_mnist.exe -run
