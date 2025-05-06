@@ -71,8 +71,8 @@ int main(int argc, char* argv[]) {
 
     // --- GPU Data Preparation ---
     uint8_t *d_train_images_uint8; // Temporary device buffer for uint8 images
-    uint8_t *d_all_train_labels;   // Device buffer for ALL labels
-    float *d_all_train_images_float; // Device buffer for ALL normalized float images
+    uint8_t *d_all_train_labels;   // Device buffer for all labels
+    float *d_all_train_images_float; // Device buffer for all normalized float images
 
     size_t num_training_pixels = (size_t)train_images_count * input_feature_size;
     size_t training_images_bytes_uint8 = sizeof(uint8_t) * num_training_pixels;
@@ -130,7 +130,6 @@ int main(int argc, char* argv[]) {
     auto overall_duration_ms_cudnn = std::chrono::duration_cast<std::chrono::milliseconds>(overall_end_time_cudnn - overall_start_time_cudnn);
     double overall_duration_s_cudnn = overall_duration_ms_cudnn.count() / 1000.0;
     printf("Overall Training Wall Time for CUDNN MNIST training implementation: %lld ms (%.3f s)\n", overall_duration_ms_cudnn.count(), overall_duration_s_cudnn);
-
 
     // --- Cleanup ---
     CHECK_CUDA_ERROR(cudaFree(d_all_train_images_float));
