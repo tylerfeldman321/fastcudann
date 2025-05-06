@@ -10,6 +10,7 @@ Neural network training can take a very long time, particularly for large scale 
 - Cuda 12.8+
 - gcc 11.4+
 - Python 3.12+
+- Ubuntu 22.04+
 
 ## Installing Additional Dependencies
 ```bash
