@@ -159,6 +159,38 @@ __global__ void update_weights_kernel(float* weights, const float* grad_weights,
     }
 }
 
+__global__ void calculate_accuracy_kernel(
+    const float* probabilities,
+    const uint8_t* true_labels,
+    int* correct_counts,
+    int batch_size,
+    int num_classes
+) {
+    size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+
+    for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx += stride) {
+        int offset = sample_idx * num_classes;
+        const float* current_probs = probabilities + offset;
+        int true_label = (int)true_labels[sample_idx];
+
+        // Find the index of the highest probability (predicted class)
+        int predicted_label = 0;
+        float max_prob = current_probs[0];
+        for (int j = 1; j < num_classes; ++j) {
+            if (current_probs[j] > max_prob) {
+                max_prob = current_probs[j];
+                predicted_label = j;
+            }
+        }
+
+        // If prediction matches true label, atomically increment the counter
+        if (predicted_label == true_label) {
+            atomicAdd(correct_counts, 1);
+        }
+    }
+}
+
 
 __global__ void scce_loss_and_accuracy_kernel_accumulate(
     const float *probabilities,

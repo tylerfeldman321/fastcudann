@@ -5,46 +5,17 @@
 #include "../include/utils.cuh"
 #include "../include/ops.cuh"
 
-// Function to calculate accuracy on the device (avoids transferring probabilities)
-__global__ void calculate_accuracy_kernel(const float* probabilities, const uint8_t* true_labels,
-                                          int* correct_counts,
-                                          int batch_size, int num_classes) {
-    size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t stride = blockDim.x * gridDim.x;
 
-    for (size_t sample_idx = thread_idx; sample_idx < batch_size; sample_idx += stride) {
-        int offset = sample_idx * num_classes;
-        const float* current_probs = probabilities + offset;
-        int true_label = (int)true_labels[sample_idx];
-
-        // Find the index of the highest probability (predicted class)
-        int predicted_label = 0;
-        float max_prob = current_probs[0];
-        for (int j = 1; j < num_classes; ++j) {
-            if (current_probs[j] > max_prob) {
-                max_prob = current_probs[j];
-                predicted_label = j;
-            }
-        }
-
-        // If prediction matches true label, atomically increment the counter
-        if (predicted_label == true_label) {
-            atomicAdd(correct_counts, 1); // Atomically add 1 to the shared counter
-        }
-    }
-}
-
-
-bool run_training_basic_implementation(float *d_all_train_images_float, // Pointer to ALL training images on device
-                  uint8_t *d_all_train_labels,     // Pointer to ALL training labels on device
-                  int total_train_samples,         // Total number of training samples (e.g., 60000)
-                  int input_size,                  // Size of one input image (e.g., 784)
-                  int output_size,                 // Number of output classes (e.g., 10)
-                  int num_epochs,                  // Number of epochs to train
-                  int mini_batch_size,             // Mini-batch size
-                  float learning_rate              // Learning rate for optimizer
-                  )
-{
+bool run_training_basic_implementation(
+    float *d_all_train_images_float,
+    uint8_t *d_all_train_labels,
+    int total_train_samples,
+    int input_size,
+    int output_size,
+    int num_epochs,
+    int mini_batch_size,
+    float learning_rate
+) {
     printf("Starting training...\n");
     printf("Parameters:\n");
     printf("  Epochs: %d\n", num_epochs);
@@ -62,14 +33,13 @@ bool run_training_basic_implementation(float *d_all_train_images_float, // Point
 
     int num_weights = input_size * output_size;
     size_t weights_bytes = sizeof(float) * num_weights;
-    // Allocate intermediate buffers based on MINI_BATCH_SIZE
     size_t output_bytes = sizeof(float) * mini_batch_size * output_size;
     size_t loss_bytes = sizeof(float) * mini_batch_size;
-    size_t accuracy_counter_bytes = sizeof(int); // For single atomic counter
+    size_t accuracy_counter_bytes = sizeof(int);
 
-    float *h_losses = (float*)malloc(loss_bytes); // Host buffer for losses of one mini-batch
+    float *h_losses = (float*)malloc(loss_bytes);
     if (!h_losses) { fprintf(stderr, "Failed to allocate host memory for losses\n"); return false; }
-    int h_correct_count = 0; // Host variable for accuracy count
+    int h_correct_count = 0;
 
     // --- Device Memory Allocation ---
     float *d_weights, *d_output, *d_probabilities, *d_losses, *d_grad_logits, *d_grad_weights;
@@ -77,12 +47,10 @@ bool run_training_basic_implementation(float *d_all_train_images_float, // Point
 
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_weights, weights_bytes));
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_grad_weights, weights_bytes));
-    // Allocate based on mini_batch_size for intermediate results
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_output, output_bytes));
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_probabilities, output_bytes));
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_losses, loss_bytes));
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_grad_logits, output_bytes));
-    // Allocate and initialize accuracy counter on device
     CHECK_CUDA_ERROR(cudaMalloc((void**)&d_correct_count, accuracy_counter_bytes));
 
     // --- Initialize Weights ---
