@@ -1,16 +1,4 @@
-// From: https://github.com/wichtounet/mnist
-
-//=======================================================================
-// Copyright (c) 2014-2016 Baptiste Wicht
-// Distributed under the terms of the MIT License.
-// (See accompanying file LICENSE or copy at
-//  http://opensource.org/licenses/MIT)
-//=======================================================================
-
-/*!
- * \file
- * \brief Contains common functions to read the MNIST dataset
- */
+// Adapted from: https://github.com/wichtounet/mnist
 
 #ifndef MNIST_READER_COMMON_HPP
 #define MNIST_READER_COMMON_HPP

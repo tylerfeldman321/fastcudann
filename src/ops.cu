@@ -15,23 +15,20 @@ __global__ void convert_and_normalize(const uint8_t* input, float* output, int n
 __global__ void init_weights_uniform(float* data, size_t size, size_t seed) {
     size_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     size_t stride = blockDim.x * gridDim.x;
-    // Initialize RNG state once per thread
     curandState_t state;
-    // Ensure unique seed/sequence per thread even across blocks
     curand_init((size_t)seed + thread_idx, 0, 0, &state);
 
     for (size_t data_idx = thread_idx; data_idx < size; data_idx+=stride) {
-        // Use the initialized state
         float rand_val = curand_uniform(&state);
-        data[data_idx] = 2.0f * rand_val - 1.0f; // Range [-1.0, 1.0]
+        data[data_idx] = 2.0f * rand_val - 1.0f;
     }
 }
 
 
 __global__ void matmul_kernel(float *output, const float *input, const float *weights, int input_size, int output_size, int batch_size) {
     // Use 2D indexing for threads and blocks
-    int thread_id_x = blockDim.x * blockIdx.x + threadIdx.x; // Corresponds to sample_idx (batch dimension)
-    int thread_id_y = blockDim.y * blockIdx.y + threadIdx.y; // Corresponds to output_idx (output features)
+    int thread_id_x = blockDim.x * blockIdx.x + threadIdx.x;
+    int thread_id_y = blockDim.y * blockIdx.y + threadIdx.y;
 
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
@@ -132,15 +129,14 @@ __global__ void calculate_weight_gradient_kernel(float* grad_weights,
     const float* grad_logits,
     int input_size,
     int output_size,
-    int batch_size) {
-    // Each thread calculates one element of the grad_weights matrix
-    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x; // Index for input_size (row of weights)
-    int thread_id_y = blockIdx.y * blockDim.y + threadIdx.y; // Index for output_size (column of weights)
+    int batch_size
+) {
+    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int thread_id_y = blockIdx.y * blockDim.y + threadIdx.y;
 
     int stride_x = blockDim.x * gridDim.x;
     int stride_y = blockDim.y * gridDim.y;
 
-    // Iterate over the portion of the weight gradient matrix this thread is responsible for
     for (int input_idx = thread_id_x; input_idx < input_size; input_idx += stride_x) {
         for (int output_idx = thread_id_y; output_idx < output_size; output_idx += stride_y) {
             float gradient_sum = 0.0f;
