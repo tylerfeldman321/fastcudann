@@ -284,6 +284,7 @@ bool run_training_optimized(
         CHECK_CUDA_ERROR(cudaMemsetAsync(d_epoch_total_loss, 0, scalar_float_bytes, 0));
         CHECK_CUDA_ERROR(cudaMemsetAsync(d_epoch_total_correct, 0, scalar_int_bytes, 0));
 
+        bool should_print_loss = ((epoch + 1) % loss_print_period == 0) || (epoch == num_epochs - 1);
         long long epoch_total_processed = 0;
 
         for (int batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
@@ -313,21 +314,28 @@ bool run_training_optimized(
             softmax<<<softmax_grid, block_1d>>>(d_output, d_probabilities, current_batch_size, output_size);
             CHECK_CUDA_ERROR(cudaGetLastError());
 
-            // --- Loss and Accuracy Calculation (GPU Accumulation) ---
-            // 3. Calculate Loss (per sample) and Accumulate total epoch loss on GPU
-            int loss_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
-            scce_loss_forward_kernel_accumulate<<<loss_grid, block_1d>>>(
-                d_probabilities, d_current_batch_labels, d_batch_losses, d_epoch_total_loss,
-                current_batch_size, output_size);
-             CHECK_CUDA_ERROR(cudaGetLastError());
+            if (should_print_loss) {
+                // --- Loss and Accuracy Calculation (GPU Accumulation) ---
+                // 3. Calculate Loss (per sample) and Accumulate total epoch loss on GPU
+                // int loss_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
+                // scce_loss_forward_kernel_accumulate<<<loss_grid, block_1d>>>(
+                //     d_probabilities, d_current_batch_labels, d_batch_losses, d_epoch_total_loss,
+                //     current_batch_size, output_size);
+                // CHECK_CUDA_ERROR(cudaGetLastError());
 
-
-            // 4. Calculate Accuracy and Accumulate total correct count on GPU
-            int accuracy_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
-            calculate_accuracy_kernel_accumulate<<<accuracy_grid, block_1d>>>(
-                d_probabilities, d_current_batch_labels, d_epoch_total_correct,
-                current_batch_size, output_size);
-             CHECK_CUDA_ERROR(cudaGetLastError());
+                // 3 & 4. Calculate total loss and accuracy and accumulate total correct count on GPU
+                int accuracy_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
+                scce_loss_and_accuracy_kernel_accumulate<<<accuracy_grid, block_1d>>>(
+                    d_probabilities,
+                    d_current_batch_labels,
+                    d_batch_losses,
+                    d_epoch_total_loss,
+                    d_epoch_total_correct,
+                    current_batch_size,
+                    output_size
+                );
+                CHECK_CUDA_ERROR(cudaGetLastError());
+            }
 
             // --- Backward Pass ---
             // 5. Calculate Gradient of Loss w.r.t. Logits (dL/dZ)
@@ -360,7 +368,6 @@ bool run_training_optimized(
         CHECK_CUDA_ERROR(cudaEventRecord(epoch_stop_event, 0));
 
         // --- Conditional Loss/Accuracy Reporting ---
-        bool should_print_loss = ((epoch + 1) % loss_print_period == 0) || (epoch == num_epochs - 1);
         if (should_print_loss) {
             CHECK_CUDA_ERROR(cudaEventSynchronize(epoch_stop_event));
 

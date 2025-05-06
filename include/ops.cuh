@@ -30,19 +30,14 @@ __global__ void calculate_weight_gradient_kernel(float* grad_weights,
 __global__ void update_weights_kernel(float* weights, const float* grad_weights, float learning_rate, int num_weights);
 
 
-__global__ void scce_loss_forward_kernel_accumulate(
+__global__ void scce_loss_and_accuracy_kernel_accumulate(
     const float *probabilities,
     const uint8_t *labels,
     float *d_batch_losses,
     float *d_epoch_total_loss,
-    int batch_size,
-    int num_classes);
-
-__global__ void calculate_accuracy_kernel_accumulate(
-    const float *probabilities,
-    const uint8_t *labels,
     int *d_epoch_total_correct,
     int batch_size,
-    int num_classes);
+    int num_classes
+);
 
 #endif

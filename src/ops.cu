@@ -164,62 +164,48 @@ __global__ void update_weights_kernel(float* weights, const float* grad_weights,
 }
 
 
-__global__ void scce_loss_forward_kernel_accumulate(
+__global__ void scce_loss_and_accuracy_kernel_accumulate(
     const float *probabilities,
     const uint8_t *labels,
-    float *d_batch_losses,       // Optional output for per-sample loss
-    float *d_epoch_total_loss,   // Accumulator (input/output)
+    float *d_batch_losses,        // Optional per-sample output
+    float *d_epoch_total_loss,    // Total accumulated loss (atomic)
+    int *d_epoch_total_correct,   // Total correct predictions (atomic)
     int batch_size,
-    int num_classes)
-{
-    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride_x = gridDim.x * blockDim.x;
+    int num_classes
+) {
+    int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
 
-    for (int sample_idx = thread_id_x; sample_idx < batch_size; sample_idx += stride_x) {
-        uint8_t true_label = labels[sample_idx];
+    for (int sample_idx = thread_id; sample_idx < batch_size; sample_idx += stride) {
+        int label = labels[sample_idx];
+        int offset = sample_idx * num_classes;
 
-        int prob_idx = sample_idx * num_classes + true_label;
-
-        float prob_true_class = probabilities[prob_idx] + 1e-9f;
-
+        // --- Cross-Entropy Loss ---
+        float prob_true_class = probabilities[offset + label];
+        prob_true_class = fmaxf(prob_true_class, 1e-9f); // Numerical stability
         float sample_loss = -logf(prob_true_class);
+
+        // Store per-sample loss if requested
         if (d_batch_losses != NULL) {
             d_batch_losses[sample_idx] = sample_loss;
         }
 
+        // Accumulate total loss
         atomicAdd(d_epoch_total_loss, sample_loss);
-    }
-}
 
-
-__global__ void calculate_accuracy_kernel_accumulate(
-    const float *probabilities,
-    const uint8_t *labels,
-    int *d_epoch_total_correct,
-    int batch_size,
-    int num_classes)
-{
-    int thread_id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride_x = gridDim.x * blockDim.x;
-
-    for (int sample_idx = thread_id_x; sample_idx < batch_size; sample_idx += stride_x) {
+        // --- Accuracy ---
         float max_prob = -1.0f;
         int predicted_label = -1;
-        int start_idx = sample_idx * num_classes;
-
         for (int i = 0; i < num_classes; ++i) {
-            float current_prob = probabilities[start_idx + i];
-            if (current_prob > max_prob) {
-                max_prob = current_prob;
+            float p = probabilities[offset + i];
+            if (p > max_prob) {
+                max_prob = p;
                 predicted_label = i;
             }
         }
 
-        uint8_t true_label = labels[sample_idx];
-        if (predicted_label == true_label) {
+        if (predicted_label == label) {
             atomicAdd(d_epoch_total_correct, 1);
         }
     }
 }
-
-
