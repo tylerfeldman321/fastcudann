@@ -167,9 +167,9 @@ __global__ void update_weights_kernel(float* weights, const float* grad_weights,
 __global__ void scce_loss_and_accuracy_kernel_accumulate(
     const float *probabilities,
     const uint8_t *labels,
-    float *d_batch_losses,        // Optional per-sample output
-    float *d_epoch_total_loss,    // Total accumulated loss (atomic)
-    int *d_epoch_total_correct,   // Total correct predictions (atomic)
+    float *d_batch_losses,
+    float *d_epoch_total_loss,
+    int *d_epoch_total_correct,
     int batch_size,
     int num_classes
 ) {
@@ -180,20 +180,16 @@ __global__ void scce_loss_and_accuracy_kernel_accumulate(
         int label = labels[sample_idx];
         int offset = sample_idx * num_classes;
 
-        // --- Cross-Entropy Loss ---
         float prob_true_class = probabilities[offset + label];
-        prob_true_class = fmaxf(prob_true_class, 1e-9f); // Numerical stability
+        prob_true_class = fmaxf(prob_true_class, 1e-9f);
         float sample_loss = -logf(prob_true_class);
 
-        // Store per-sample loss if requested
         if (d_batch_losses != NULL) {
             d_batch_losses[sample_idx] = sample_loss;
         }
 
-        // Accumulate total loss
         atomicAdd(d_epoch_total_loss, sample_loss);
 
-        // --- Accuracy ---
         float max_prob = -1.0f;
         int predicted_label = -1;
         for (int i = 0; i < num_classes; ++i) {
