@@ -316,13 +316,6 @@ bool run_training_optimized(
 
             if (should_print_loss) {
                 // --- Loss and Accuracy Calculation (GPU Accumulation) ---
-                // 3. Calculate Loss (per sample) and Accumulate total epoch loss on GPU
-                // int loss_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
-                // scce_loss_forward_kernel_accumulate<<<loss_grid, block_1d>>>(
-                //     d_probabilities, d_current_batch_labels, d_batch_losses, d_epoch_total_loss,
-                //     current_batch_size, output_size);
-                // CHECK_CUDA_ERROR(cudaGetLastError());
-
                 // 3 & 4. Calculate total loss and accuracy and accumulate total correct count on GPU
                 int accuracy_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
                 scce_loss_and_accuracy_kernel_accumulate<<<accuracy_grid, block_1d>>>(
