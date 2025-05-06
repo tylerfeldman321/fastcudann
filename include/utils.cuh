@@ -14,7 +14,12 @@ static void checkCudaError(cudaError_t err, const char *file, int line) {
 #define CHECK_CUDNN_ERROR(status) \
     if (status != CUDNN_STATUS_SUCCESS) { \
         fprintf(stderr, "cuDNN Error: %s at %s:%d\n", cudnnGetErrorString(status), __FILE__, __LINE__); \
-        /* Consider adding exit(EXIT_FAILURE); */ \
+    }
+
+#define CHECK_CUBLAS_ERROR(err) \
+    if (err != CUBLAS_STATUS_SUCCESS) { \
+        fprintf(stderr, "cuBLAS Error at %s:%d: %s\n", __FILE__, __LINE__, "cuBLAS API Error"); \
+        exit(EXIT_FAILURE); \
     }
 
 // Helper function to calculate grid size for 1D kernels
