@@ -34,7 +34,6 @@ print(f"AMP enabled: {use_amp}")
 # --- Data Setup ---
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
 ])
 
 train_dataset = torchvision.datasets.MNIST(root='./data', train=True, transform=transform, download=True)

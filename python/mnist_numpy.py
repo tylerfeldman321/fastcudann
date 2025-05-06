@@ -15,7 +15,6 @@ NUM_CLASSES = 10
 print("Loading MNIST dataset...")
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.1307,), (0.3081,))
 ])
 
 train_dataset = torchvision.datasets.MNIST(root='./data',
