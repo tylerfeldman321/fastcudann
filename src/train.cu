@@ -98,7 +98,6 @@ bool run_training_basic_implementation(
             int loss_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
             scce_loss_forward_kernel<<<loss_grid, block_1d>>>(d_probabilities, d_current_batch_labels, d_losses, current_batch_size, output_size);
 
-
             // --- Loss Calculation & Logging ---
             CHECK_CUDA_ERROR(cudaMemcpy(h_losses, d_losses, sizeof(float) * current_batch_size, cudaMemcpyDeviceToHost));
             CHECK_CUDA_ERROR(cudaDeviceSynchronize());
@@ -113,23 +112,21 @@ bool run_training_basic_implementation(
 
 
              // --- Calculate Accuracy (on GPU) ---
-            CHECK_CUDA_ERROR(cudaMemset(d_correct_count, 0, accuracy_counter_bytes)); // Reset counter for the batch
+            CHECK_CUDA_ERROR(cudaMemset(d_correct_count, 0, accuracy_counter_bytes));
             int accuracy_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
             calculate_accuracy_kernel<<<accuracy_grid, block_1d>>>(d_probabilities, d_current_batch_labels, d_correct_count, current_batch_size, output_size);
-            // Copy the result back from GPU
             CHECK_CUDA_ERROR(cudaMemcpy(&h_correct_count, d_correct_count, accuracy_counter_bytes, cudaMemcpyDeviceToHost));
-            CHECK_CUDA_ERROR(cudaDeviceSynchronize());  // Synchronize ensure the accuracy count copy is complete.
+            CHECK_CUDA_ERROR(cudaDeviceSynchronize());
             epoch_total_correct += h_correct_count;
 
 
             // --- Backward Pass ---
             // 4. Calculate Gradient of Loss w.r.t. Logits (dL/dZ)
-            float grad_scale_factor = 1.0f / (float)current_batch_size; // Average gradient over the batch
-            int backward_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D); // Based on batch size
+            float grad_scale_factor = 1.0f / (float)current_batch_size;
+            int backward_grid = calculate_grid_size_1d(current_batch_size, BLOCK_SIZE_1D);
             scce_softmax_backward_kernel<<<backward_grid, block_1d>>>(d_probabilities, d_current_batch_labels, d_grad_logits, current_batch_size, output_size, grad_scale_factor);
 
             // 5. Calculate Gradient of Loss w.r.t Weights (dL/dW = X^T * dL/dZ)
-            // Grid depends on weight matrix dimensions (input_size x output_size)
             dim3 grad_weights_grid = calculate_grid_size_2d(input_size, output_size, block_2d);
             calculate_weight_gradient_kernel<<<grad_weights_grid, block_2d>>>(d_grad_weights, d_current_batch_images, d_grad_logits, input_size, output_size, current_batch_size);
 
@@ -138,7 +135,6 @@ bool run_training_basic_implementation(
             int update_grid = calculate_grid_size_1d(num_weights, BLOCK_SIZE_1D);
             update_weights_kernel<<<update_grid, block_1d>>>(d_weights, d_grad_weights, learning_rate, num_weights);
 
-            // Check for errors periodically (e.g., end of batch) - essential for debugging
             CHECK_CUDA_ERROR(cudaGetLastError());
         }
 
@@ -183,7 +179,7 @@ bool run_training_optimized(
     float learning_rate,
     int loss_print_period
 ) {
-    printf("Starting training (Periodic Loss Reporting - cuBLAS)...\n"); // Indicate cuBLAS usage
+    printf("Starting training (Periodic Loss Reporting - cuBLAS)...\n");
     printf("Parameters:\n");
     printf("  Epochs: %d\n", num_epochs);
     printf("  Mini-batch Size: %d\n", mini_batch_size);
@@ -320,9 +316,8 @@ bool run_training_optimized(
             // 7. Apply gradient descent step (Weights = Weights - LR * dL/dW)
             int update_grid = calculate_grid_size_1d(num_weights, BLOCK_SIZE_1D);
             update_weights_kernel<<<update_grid, block_1d>>>(d_weights, d_grad_weights, learning_rate, num_weights);
-            CHECK_CUDA_ERROR(cudaGetLastError()); // Check after kernel launch
+            CHECK_CUDA_ERROR(cudaGetLastError());
 
-            // --- Update CPU counter for total processed samples ---
             epoch_total_processed += current_batch_size;
         }
 
